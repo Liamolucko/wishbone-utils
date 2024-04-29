@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 
 use byteorder::{BigEndian, ByteOrder};
 
@@ -162,8 +162,20 @@ impl EthernetBridgeInner {
         loop {
             let mut connection = if cfg.protocol == EthernetBridgeProtocol::TCP {
                 match TcpStream::connect(remote_addr) {
-                    Ok(conn) => {
+                    Ok(mut conn) => {
                         info!("Re-opened ethernet host {}", remote_addr);
+                        // Consume `litex_server`'s metadata.
+                        // I'm suspicious of how reliable this will be but it's exactly what litex_cli does so...
+                        let mut buffer = [0; 128];
+                        let Ok(nread) = conn.read(&mut buffer) else {
+                            error!("Failed to read init message");
+                            continue;
+                        };
+                        if let Ok(info) = std::str::from_utf8(&buffer[..nread]) {
+                            info!("Server info: {info}");
+                        } else {
+                            warn!("Server info was invalid UTF-8");
+                        }
                         EthernetConnection::TCP(conn)
                     }
                     Err(e) => {
@@ -199,12 +211,12 @@ impl EthernetBridgeInner {
             }
             print_waiting_message = true;
 
-            if let Err(e) = connection.set_read_timeout(Some(Duration::from_millis(1000))) {
-                error!("unable to set ethernet read duration timeout: {}", e);
-            }
-            if let Err(e) = connection.set_write_timeout(Some(Duration::from_millis(1000))) {
-                error!("unable to set ethernet write duration timeout: {}", e);
-            }
+            // if let Err(e) = connection.set_read_timeout(Some(Duration::from_millis(1000))) {
+            //     error!("unable to set ethernet read duration timeout: {}", e);
+            // }
+            // if let Err(e) = connection.set_write_timeout(Some(Duration::from_millis(1000))) {
+            //     error!("unable to set ethernet write duration timeout: {}", e);
+            // }
 
             let mut keep_going = true;
             let mut result_error = "".to_owned();
